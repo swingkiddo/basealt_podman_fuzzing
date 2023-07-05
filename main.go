@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/gorilla/mux"
 	_ "github.com/lib/pq"
+	"io"
 	"log"
 	"net/http"
 )
@@ -14,6 +15,11 @@ const (
 	DB_USER     = "postgres"
 	DB_PASSWORD = "pravda"
 	DB_NAME     = "podman_fuzzing"
+	PORT        = "9000"
+)
+
+var (
+	db *sql.DB
 )
 
 func setupDB() *sql.DB {
@@ -46,33 +52,65 @@ type JsonResponse struct {
 }
 
 func GetTargets(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("hold on")
-	db := setupDB()
 	rows, err := db.Query("SELECT * FROM targets")
 	checkErr(err)
 
 	var targets []Target
 
 	for rows.Next() {
-		var name string
-		var packageDir string
-		var source string
+		var (
+			id                   int
+			name                 string
+			packageDir           string
+			source               string
+			coverage             interface{}
+			cyclomaticComplexity interface{}
+		)
 
-		err = rows.Scan(&name, &packageDir, &source)
+		err = rows.Scan(&id, &name, &packageDir, &source, &coverage, &cyclomaticComplexity)
 		checkErr(err)
 
 		targets = append(targets, Target{Name: name, PackageDir: packageDir, Source: source})
 	}
 
 	var response = JsonResponse{Type: "success", Data: targets}
+	err = json.NewEncoder(w).Encode(response)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func AddTarget(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		log.Fatal(err)
+	}
+	data := make(map[string]interface{})
+	err = json.Unmarshal(body, &data)
+	checkErr(err)
+
+	name := data["name"]
+	packageDir := data["package"]
+	source := data["source"]
+	_, err = db.Query("INSERT INTO targets(name, package, source) VALUES($1, $2, $3);", name, packageDir, source)
+	checkErr(err)
+
+	response := JsonResponse{Type: "success", Message: "The target has been added successfully"}
 	json.NewEncoder(w).Encode(response)
 }
 
 func main() {
+	db = setupDB()
+	defer db.Close()
+
 	router := mux.NewRouter()
 
-	router.HandleFunc("/targets/", GetTargets).Methods("GET")
+	router.HandleFunc("/targets", GetTargets).Methods("GET")
+	router.HandleFunc("/targets", AddTarget).Methods("POST")
+	fmt.Println(router)
 
-	fmt.Println("Server at 8080")
-	log.Fatal(http.ListenAndServe(":8080", router))
+	fmt.Println("Server at ", PORT)
+	if err := http.ListenAndServe("localhost:"+PORT, router); err != nil {
+		log.Fatal(err)
+	}
 }

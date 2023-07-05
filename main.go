@@ -99,6 +99,15 @@ func AddTarget(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+func DeleteTarget(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	id := params["id"]
+	_, err := db.Exec("DELETE FROM targets WHERE  id = $1", id)
+	checkErr(err)
+	response := JsonResponse{Type: "success", Message: "The target has been deleted succesfully"}
+	json.NewEncoder(w).Encode(response)
+}
+
 func main() {
 	db = setupDB()
 	defer db.Close()
@@ -107,6 +116,7 @@ func main() {
 
 	router.HandleFunc("/targets", GetTargets).Methods("GET")
 	router.HandleFunc("/targets", AddTarget).Methods("POST")
+	router.HandleFunc("/targets/{id}", DeleteTarget).Methods("DELETE")
 	fmt.Println(router)
 
 	fmt.Println("Server at ", PORT)
